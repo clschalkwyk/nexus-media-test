@@ -11,18 +11,21 @@ from fastapi import FastAPI, Header
 from typing import Optional
 from mangum import Mangum
 
+
 class AccountReq(BaseModel):
     email: str
     password: str
 
+
 class Settings(BaseSettings):
     DYNAMO_TABLE: str
     JWT_SECRET: str
-    JWT_EXP : int
-    PWD_SALT : str
+    JWT_EXP: int
+    PWD_SALT: str
 
     class Config:
         env_file = '.env'
+
 
 config = Settings()
 dy_table = config.DYNAMO_TABLE
@@ -30,9 +33,24 @@ jwt_secret = config.JWT_SECRET
 jwt_exp = config.JWT_EXP
 pwd_salt = config.PWD_SALT
 
-
 app = FastAPI()
 
+
+def is_authorized(func):
+    def wrapper(authorization: Optional[str] = Header(None)):
+        try:
+            if authorization:
+                jtoken = authorization.split('Bearer')[1].strip()
+                decoded = jwt.decode(jtoken, jwt_secret, algorithms='HS256')
+                print(decoded)
+                return func()
+            else:
+                return {"error": "Not Authorized."}
+        except(jwt.exceptions.ExpiredSignatureError):
+            return {"error": "Session expired."}
+        except:
+            return {"error": "Session invalid."}
+    return wrapper
 
 @app.get("/")
 def home():
@@ -93,7 +111,6 @@ def auth_login(account: AccountReq):
         hash = h.hexdigest()
 
         if resp['Items'][0]['password'] == hash:
-
             payload = {
                 "email": account.email,
                 "domain": domain,
@@ -102,19 +119,25 @@ def auth_login(account: AccountReq):
             }
             print(payload)
             encoded = jwt.encode(payload, jwt_secret, algorithm='HS256')
-            return {"result": 200, "token": encoded }
-
+            return {"result": 200, "token": encoded}
 
     return {"result": 500, "message": "Authentication failed."}
+
 
 @app.get("/auth/me")
 def auth_me(authorization: Optional[str] = Header(None)):
     try:
         jtoken = authorization.split('Bearer')[1].strip()
         decoded = jwt.decode(jtoken, jwt_secret, algorithms='HS256')
-        return {"me" : decoded}
+        return {"me": decoded}
     except(jwt.exceptions.ExpiredSignatureError):
         return {"error": "Session expired."}
+
+
+@app.get("/auth/test")
+@is_authorized
+def auth_test():
+    return {"me": "yes"}
 
 
 
