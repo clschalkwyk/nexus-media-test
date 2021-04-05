@@ -2,30 +2,18 @@ import uvicorn
 import boto3
 import jwt
 import datetime
+import json
 
 from boto3.dynamodb.conditions import Key
 from hashlib import sha256
 from uuid import uuid4
-from pydantic import BaseModel, BaseSettings
-from fastapi import FastAPI, Header
+from fastapi import FastAPI, Header, Depends
 from typing import Optional
 from mangum import Mangum
 
-
-class AccountReq(BaseModel):
-    email: str
-    password: str
-
-
-class Settings(BaseSettings):
-    DYNAMO_TABLE: str
-    JWT_SECRET: str
-    JWT_EXP: int
-    PWD_SALT: str
-
-    class Config:
-        env_file = '.env'
-
+from .models import account
+from .models.config import Settings
+from .libs.auth import authorized
 
 config = Settings()
 dy_table = config.DYNAMO_TABLE
@@ -36,22 +24,6 @@ pwd_salt = config.PWD_SALT
 app = FastAPI()
 
 
-def is_authorized(func):
-    def wrapper(authorization: Optional[str] = Header(None)):
-        try:
-            if authorization:
-                jtoken = authorization.split('Bearer')[1].strip()
-                decoded = jwt.decode(jtoken, jwt_secret, algorithms='HS256')
-                print(decoded)
-                return func()
-            else:
-                return {"error": "Not Authorized."}
-        except(jwt.exceptions.ExpiredSignatureError):
-            return {"error": "Session expired."}
-        except:
-            return {"error": "Session invalid."}
-    return wrapper
-
 @app.get("/")
 def home():
     return {"Hello 4"}
@@ -59,7 +31,7 @@ def home():
 
 # auth
 @app.post("/auth")
-def auth_join(account: AccountReq):
+def auth_join(account: account.AccountReq):
     dynamo = boto3.resource('dynamodb')
     table = dynamo.Table(dy_table)
     domain = 'cyberstaffing'
@@ -92,7 +64,7 @@ def auth_join(account: AccountReq):
 
 
 @app.post("/auth/login")
-def auth_login(account: AccountReq):
+def auth_login(account: account.AccountReq):
     dynamo = boto3.resource('dynamodb')
     table = dynamo.Table(dy_table)
     domain = 'cyberstaffing'
@@ -130,15 +102,31 @@ def auth_me(authorization: Optional[str] = Header(None)):
         jtoken = authorization.split('Bearer')[1].strip()
         decoded = jwt.decode(jtoken, jwt_secret, algorithms='HS256')
         return {"me": decoded}
-    except(jwt.exceptions.ExpiredSignatureError):
+    except jwt.exceptions.ExpiredSignatureError:
+        return {"error": "Session expired."}
+
+async def get_user(authorization: Optional[str] = Header(None)):
+    try:
+        jtoken = authorization.split('Bearer')[1].strip()
+        decoded = jwt.decode(jtoken, jwt_secret, algorithms='HS256')
+        return decoded
+    except jwt.exceptions.ExpiredSignatureError:
         return {"error": "Session expired."}
 
 
-@app.get("/auth/test")
-@is_authorized
+
+@app.get("/auth/test", dependencies=[Depends(authorized)])
 def auth_test():
     return {"me": "yes"}
 
+# profile
+@app.post('/account/profile')
+def account_profile(profile: account.ProfileReq, user: dict = Depends(get_user)):
+    print(profile)
+
+    print(user.get('userId'))
+
+    return {"profile"}
 
 
 
