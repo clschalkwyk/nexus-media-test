@@ -2,18 +2,19 @@ import uvicorn
 import boto3
 import jwt
 import datetime
+import os
 import json
-
+import shutil
 from boto3.dynamodb.conditions import Key
 from hashlib import sha256
 from uuid import uuid4
-from fastapi import FastAPI, Header, Depends
+from fastapi import FastAPI, Header, Depends, UploadFile, File
 from typing import Optional
 from mangum import Mangum
 
 from .models import account
 from .models.config import Settings
-from .libs.auth import authorized
+from .libs.auth import authorized, get_user
 
 config = Settings()
 dy_table = config.DYNAMO_TABLE
@@ -105,14 +106,6 @@ def auth_me(authorization: Optional[str] = Header(None)):
     except jwt.exceptions.ExpiredSignatureError:
         return {"error": "Session expired."}
 
-async def get_user(authorization: Optional[str] = Header(None)):
-    try:
-        jtoken = authorization.split('Bearer')[1].strip()
-        decoded = jwt.decode(jtoken, jwt_secret, algorithms='HS256')
-        return decoded
-    except jwt.exceptions.ExpiredSignatureError:
-        return {"error": "Session expired."}
-
 
 
 @app.get("/auth/test", dependencies=[Depends(authorized)])
@@ -122,11 +115,28 @@ def auth_test():
 # profile
 @app.post('/account/profile')
 def account_profile(profile: account.ProfileReq, user: dict = Depends(get_user)):
-    print(profile)
-
+    print(profile.json())
     print(user.get('userId'))
 
     return {"profile"}
+
+
+@app.post('/account/media')
+def account_media(image: UploadFile = File(...), user: dict = Depends(get_user)):
+    print(user)
+    print(image)
+
+    temp_filename = '{}{}'.format(uuid4().__str__(), os.path.splitext(image.filename)[1])
+    print(temp_filename)
+    with open('uploads/{}'.format(temp_filename), 'wb') as buffer:
+        shutil.copyfileobj(image.file, buffer)
+
+    # check file exists
+    # upoload to S3
+    # write media gallery
+    return {'uploaded': image.filename, "temp": temp_filename}
+
+
 
 
 

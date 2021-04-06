@@ -21,3 +21,11 @@ async def authorized(authorization: Optional[str] = Header(None)):
         raise Exception("Error")
     except:
         raise Exception("Error")
+
+async def get_user(authorization: Optional[str] = Header(None)):
+    try:
+        jtoken = authorization.split('Bearer')[1].strip()
+        decoded = jwt.decode(jtoken, jwt_secret, algorithms='HS256')
+        return decoded
+    except jwt.exceptions.ExpiredSignatureError:
+        return {"error": "Session expired."}
